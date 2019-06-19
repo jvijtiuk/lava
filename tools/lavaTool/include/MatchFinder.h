@@ -13,9 +13,11 @@
 #include "FunctionPointerFieldHandler.h"
 #include "CallExprArgAdditionalHandler.h"
 #include "FunctionPointerTypedefHandler.h"
+#include "FormatStringHandler.h"
 
 // Must match value in scripts/fninstr.py
 //#define IGNORE_FN_PTRS
+#define FORMAT_STRING_BUGS
 
 using clang::tooling::ClangTool;
 using clang::tooling::Replacement;
@@ -93,6 +95,7 @@ public:
                 // make sure we aren't in static local variable initializer which must be constant
                 unless(hasAncestor(varDecl(isStaticLocalDeclMatcher()))));
 
+#ifndef FORMAT_STRING_BUGS
         addMatcher(memoryAccessMatcher, makeHandler<MemoryAccessHandler>());
 
         // This matches every stmt in a compound statement
@@ -105,15 +108,36 @@ public:
                 stmt(hasParent(compoundStmt())).bind("stmt"),
                 makeHandler<PriQueryPointHandler>()
                 );
+#else
+        if (LavaAction == LavaQueries) {
+            addMatcher(
+                stmt(hasParent(compoundStmt())).bind("stmt"),
+                makeHandler<PriQueryPointHandler>());
 
+            addMatcher(
+                callExpr(
+                    callee(functionDecl(hasName("printf"))))
+                    .bind("call_expression"),
+                makeHandler<FormatStringHandler>());
+        } else {
+            addMatcher(
+                callExpr(
+                    callee(functionDecl(hasName("printf"))))
+                    .bind("call_expression"),
+                makeHandler<FormatStringHandler>());
+            addMatcher(
+                stmt(hasParent(compoundStmt())).bind("stmt"),
+                makeHandler<PriQueryPointHandler>());
+        }
+#endif
+
+#ifndef FORMAT_STRING_BUGS
         addMatcher(
                 callExpr(
                     forEachArgMatcher(expr(isAttackableMatcher()).bind("arg"))).bind("call"),
                 makeHandler<FunctionArgHandler>()
                 );
-
-
-
+#endif 
         // fortenforge's matchers (for data_flow argument addition)
         if (ArgDataflow && LavaAction == LavaInjectBugs) {
             // function declarations & definition.  Decl without body is prototype
